@@ -1,5 +1,5 @@
 
-name: Download Ollama Model
+name: Download Ollama Model Offline
 
 on:
   workflow_dispatch:
@@ -23,40 +23,59 @@ jobs:
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
 
-      - name: Start Ollama
+      - name: Stop existing Ollama service
+        run: |
+          sudo systemctl stop ollama || true
+          sudo pkill -x ollama || true
+          sleep 3
+
+      - name: Start Ollama with custom storage
         run: |
           mkdir -p "$OLLAMA_MODELS"
-          nohup ollama serve > /tmp/ollama.log 2>&1 &
+
+          nohup env OLLAMA_MODELS="$OLLAMA_MODELS" \
+            ollama serve > /tmp/ollama.log 2>&1 &
+
           for i in {1..60}; do
             if curl -fsS http://localhost:11434/api/tags >/dev/null; then
+              echo "Ollama started successfully"
               break
             fi
             sleep 2
           done
-          curl -fsS http://localhost:11434/api/tags
 
-      - name: Download model
+          curl -fsS http://localhost:11434/api/tags
+          
+      - name: Download selected model
         env:
           MODEL: ${{ inputs.model }}
         run: |
+          echo "Downloading: $MODEL"
           ollama pull "$MODEL"
 
-      - name: Verify downloaded files
+      - name: Verify model files
         run: |
-          echo "Checking model directory..."
-          ls -lah "$OLLAMA_MODELS"
+          echo "Checking model directory:"
+          du -sh "$OLLAMA_MODELS"
+          find "$OLLAMA_MODELS" -maxdepth 3 -type f | head -30
+
           test -d "$OLLAMA_MODELS/blobs"
           test -d "$OLLAMA_MODELS/manifests"
 
-      - name: Package model
+          echo "Model files verified!"
+
+      - name: Package offline model
         run: |
           mkdir -p output
+
           tar -czf output/ollama-model.tar.gz \
             -C "$OLLAMA_MODELS" blobs manifests
 
-      - name: Upload artifact
+          ls -lh output/ollama-model.tar.gz
+
+      - name: Upload offline model
         uses: actions/upload-artifact@v4
         with:
           name: ollama-offline-model
           path: output/ollama-model.tar.gz
-          retention-days: 1
+          retention-days: 7
