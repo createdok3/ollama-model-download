@@ -1,39 +1,56 @@
+
 name: Download Ollama Model
 
 on:
   workflow_dispatch:
     inputs:
       model_name:
-        description: 'Ollama model to pull (e.g., qwen2.5:0.5b, llama3.2:1b)'
+        description: "Ollama model name (e.g. llama3.2:3b)"
         required: true
-        default: 'llama3.2:1b'
+        type: string
 
 jobs:
-  pull-and-upload:
+  download-model:
     runs-on: ubuntu-latest
-    steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
-      - name: Install Ollama Server & Python Client
+    steps:
+      - name: Install Ollama
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          pip install ollama
 
-      - name: Pull Model via Python Package
-        env:
-          MODEL: ${{ github.event.inputs.model_name }}
+      - name: Start Ollama
         run: |
-          ollama serve &
-          sleep 5
-          python -c "import os, ollama; ollama.pull(os.environ['MODEL'])"
+          ollama serve > ollama.log 2>&1 &
+          
+          for i in {1..30}; do
+            if curl -s http://localhost:11434/api/tags > /dev/null; then
+              echo "Ollama server started"
+              break
+            fi
+            sleep 2
+          done
 
-      - name: Upload Model Artifact (1-Day Retention)
+      - name: Download Model
+        run: |
+          MODEL="${{ inputs.model_name }}"
+          echo "Downloading model: $MODEL"
+          ollama pull "$MODEL"
+          ollama list
+
+      - name: Package Ollama Model
+        run: |
+          mkdir -p output
+
+          cd ~/.ollama/models
+
+          zip -r "$GITHUB_WORKSPACE/output/ollama-model.zip" \
+            blobs manifests
+
+      - name: Upload Model Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ollama-model-files
-          path: ~/.ollama/models
+          name: ollama-model-${{ inputs.model_name }}
+          path: output/ollama-model.zip
+          compression-level: 0
+          if-no-files-found: error
           retention-days: 1
-          compression-level: 0 # Model weights are already dense; skipping compression speeds up upload
