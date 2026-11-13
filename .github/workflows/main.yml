@@ -1,0 +1,39 @@
+name: Download Ollama Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Ollama model to pull (e.g., qwen2.5:0.5b, llama3.2:1b)'
+        required: true
+        default: 'llama3.2:1b'
+
+jobs:
+  pull-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ollama Server & Python Client
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          pip install ollama
+
+      - name: Pull Model via Python Package
+        env:
+          MODEL: ${{ github.event.inputs.model_name }}
+        run: |
+          ollama serve &
+          sleep 5
+          python -c "import os, ollama; ollama.pull(os.environ['MODEL'])"
+
+      - name: Upload Model Artifact (1-Day Retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ollama-model-files
+          path: ~/.ollama/models
+          retention-days: 1
+          compression-level: 0 # Model weights are already dense; skipping compression speeds up upload
